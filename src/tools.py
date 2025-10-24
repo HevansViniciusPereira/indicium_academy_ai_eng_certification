@@ -1,5 +1,5 @@
 import os
-#import json
+import json
 import requests
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
@@ -12,7 +12,6 @@ import seaborn as sns
 from reportlab.pdfgen import canvas
 from langchain_core.tools import tool
 from langchain_community.utilities import GoogleSerperAPIWrapper
-# from googlesearch import search # For news, you'd use a service like Serper or similar
 
 
 def get_csv_file_details(url: str) -> List[Dict[str, str]]:
@@ -234,109 +233,270 @@ def generate_case_time_series_charts(folder_path: str, focus_column: str, date_c
 
         # Plot 2: Last 12 Months
         df_12m = df.loc[df.index >= cutoff_12m]
-        #df_12m = df_12m.reset_index()
-        print(df_12m.shape)
         path_12m = os.path.join(output_dir, "cases_last_12_months.png")
 
         # Resample data to monthly sums for a cleaner 12-month view
         df_monthly = df_12m["TotalCases"].resample('M').sum()
         df_monthly = df_monthly.reset_index()
+        df_monthly['DT_NOTIFIC'] = df_monthly['DT_NOTIFIC'].dt.strftime('%m-%Y')
         
         plt.figure(figsize=(12, 6))
-        ax = df_monthly.plot(
+        ax = sns.barplot(
+            data=df_monthly,
             x="DT_NOTIFIC",
-            y="TotalCases",
-            kind='bar', 
-            #marker='o', 
-            #linestyle='-',
-            ax=plt.gca()
+            y="TotalCases"
         )
-        #ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%Y'))
-        #plt.xticks(rotation=45, ha='center')
+        ax.tick_params(left=False, bottom=False)
+        ax.set(xlabel=None)
+        ax.set(ylabel=None)
+        ax.set(yticklabels=[])
 
-        #df_monthly.plot(kind='bar', color='skyblue')
+        for container in ax.containers:
+            ax.bar_label(container)
+
         plt.title(f'Total Monthly Case: Last 12 Months (ending {latest_date.strftime("%Y-%m")})')
-        plt.xlabel('')
-        plt.ylabel(f'Total Cases')
-        #plt.xticks(rotation=45, ha='right')
-        plt.grid(axis='y', linestyle='--', alpha=0.6)
         plt.tight_layout()
+        sns.despine(left=True, right=True, bottom=True, top=True)
         plt.savefig(path_12m)
         plt.close()
         
         return f"🎉 Successfully generated and saved two charts:\n1. 30-Day Trend: {path_30d}\n2. 12-Month Trend: {path_12m}"
 
     except FileNotFoundError:
-        return f"❌ Error: CSV file not found at {file_path}"
+        return f"❌ Error: CSV file not found at {folder_path}"
     except KeyError as e:
         return f"❌ Error: Required column {e} not found in the CSV file."
     except Exception as e:
         return f"❌ An unexpected error occurred during chart generation: {e}"
 
 
+# News Search Tool
+#import os
+#from typing import Dict
+# from langchain_community.utilities import GoogleSerperAPIWrapper 
 
-generate_case_time_series_charts(
-    folder_path="data/",
-    focus_column=focus_column,
-    date_col = 'DT_NOTIFIC',
+def search_online_news(
+    query: str = "Síndrome Respiratória Aguda Grave",
+    num_results: int = 5,
+    start_date: str = None,
+    end_date: str = None
+) -> str:
+    """
+    Performs a real-time news search using the Serper API for relevant articles,
+    saves the results to a JSON file, and returns the file path.
+    
+    Args:
+        query (str): The search query to find news about.
+        num_results (int): The maximum number of results to fetch.
+        start_date (str): Date string for search filtering (if supported by serper_search).
+        end_date (str): Date string for search filtering (if supported by serper_search).
+                          
+    Returns:
+        str: The full file path of the saved JSON file, or an error message.
+    """
+
+    news_output_dir = "output/news"
+    news_file_name = "relevant_news_context.json"
+    
+    date_info = f" after:{start_date}" if start_date else ""
+    date_info += f" before:{end_date}" if end_date else ""
+    
+    print(f"Searching news for: {query}{date_info} (Max {num_results} results)")
+    
+    try:
+        # 1. Execute the search
+        # Pass date filters if applicable. Serper uses custom parameters for date ranges.
+        # We'll use the 'tbs' parameter (time before/since) which needs formatting (e.g., 'cdr:1,cd_min:1/1/2024,cd_max:1/31/2024')
+        # Since the Serper wrapper doesn't directly expose start/end date, we'll keep the core call simple 
+        # but acknowledge the LLM needs to format the query or use custom params if required.
+        
+        # For this modification, we assume the date filtering is handled either in the query 
+        # string or via the search tool's advanced configuration (which we omit for brevity).
+        
+        raw_results: Dict = serper_search.results(query, num_results=num_results)
+
+        # 2. Extract and format key information
+        news_items = []
+        if 'news' in raw_results and raw_results['news']:
+            for item in raw_results['news']:
+                news_items.append({
+                    "title": item.get('title', 'N/A'),
+                    "snippet": item.get('snippet', 'No summary available.'),
+                    "source": item.get('source', 'N/A'),
+                    "link": item.get('link', 'N/A')
+                })
+        
+        # 3. Save the results to the specified path
+        full_file_path = os.path.join(news_output_dir, news_file_name)
+        
+        if news_items:
+            # Ensure the output directory exists
+            os.makedirs(news_output_dir, exist_ok=True)
+            
+            # Save the structured news items as a JSON file
+            with open(full_file_path, 'w', encoding='utf-8') as f:
+                json.dump(news_items, f, indent=4, ensure_ascii=False)
+                
+            return f"🎉 Relevant news context successfully saved to: {full_file_path}"
+        else:
+            return "No relevant news articles were found for the query and no file was saved."
+
+    except Exception as e:
+        return f"❌ Error executing Serper news search or saving file: {e}"
+
+
+#####################################################################
+from dotenv import load_dotenv
+
+load_dotenv()
+
+server_api_key = os.getenv("SERPER_API_KEY")
+
+print(server_api_key)
+
+# Initialize the Serper API wrapper as the search tool
+serper_search = GoogleSerperAPIWrapper(type="news")
+
+start_date, end_date = getting_dates(url_default)
+
+
+# search_online_news(
+#     query = "Síndrome Respiratória Aguda Grave",
+#     num_results = 5,
+#     start_date = start_date,
+#     end_date = end_date)
+#####################################################################
+
+focus_column = [
+    "NU_NOTIFIC", # número da notificação
+    "DT_NOTIFIC", # data da notificação
+    "UTI", # internado em UTI
+    "DT_ENTUTI", # data da internação na UTI
+    "DT_SAIDUTI", # data da saída da UTI
+    "CLASSI_FIN", # classificação final do caso
+    "EVOLUCAO", # evolução do caso
+    "DT_EVOLUCA" # data da alta ou óbito
+    ]
+
+
+
+# Calculating metrics
+def calculate_epidemiology_rates(
+    folder_path: str,
+    focus_column: str
+) -> Dict[str, Union[float, str]]:
+    """
+    Calculates four key epidemiological rates based on provided data.
+
+    Args:
+        current_cases (int): The number of new cases reported in the current period (e.g., today).
+        
+
+    Returns:
+        Dict[str, Union[float, str]]: A dictionary containing the four calculated rates, 
+                                      or error messages if denominators are zero.
+    """
+    
+    df = analyze_csv(folder_path, focus_column)
+
+    results = {}
+
+    ###############################################
+    ## Rate of Case Increase (Percentage Change) ##
+    ###############################################
+
+    df_cases = df[["NU_NOTIFIC","DT_NOTIFIC"]]
+
+    df_cases = (
+        df_cases
+        .dropna()
+        .set_index("DT_NOTIFIC")
+        .groupby(by="DT_NOTIFIC")
+        .agg("count")
+        .rename(columns={df_cases.columns[0]: 'TotalCases'})
+        .sort_index()
     )
 
+    # Resample data to monthly sums for a cleaner 12-month view
+    df_monthly = df_cases["TotalCases"].resample('M').sum()
+    df_monthly = df_monthly.reset_index()
+    df_monthly['DT_NOTIFIC'] = df_monthly['DT_NOTIFIC'].dt.strftime('%m-%Y')
+
+    previous_cases = df_monthly["TotalCases"].iloc[-2]
+    current_cases = df_monthly["TotalCases"].iloc[-1]
+
+    if previous_cases > 0:
+        rate_increase = ((current_cases - previous_cases) / previous_cases) * 100
+        results['case_increase_rate (%)'] = round(rate_increase, 2)
+    else:
+        results['case_increase_rate (%)'] = "N/A (Previous cases were zero)"
+
+    ###############################################
+    # Death Rate
+    ###############################################
+
+    df_deaths = df[["EVOLUCAO"]].dropna().query("EVOLUCAO == 1.0 | EVOLUCAO == 2.0")
+    cumulative_confirmed_cases = df_deaths.shape[0]
+    current_deaths = df_deaths.query("EVOLUCAO == 2.0").shape[0]
+
+    if cumulative_confirmed_cases > 0:
+        death_rate = (current_deaths / cumulative_confirmed_cases) * 100
+        results['death_rate_cfr (%)'] = round(death_rate, 2)
+    else:
+        results['death_rate_cfr (%)'] = "N/A (Total confirmed cases were zero)"
+
+    ###############################################
+    # ICU Occupancy Rate
+    ###############################################
+
+    df_icu = df[["UTI", "DT_ENTUTI", "DT_SAIDUTI"]].dropna()
+
+    icu_capacity = df_cases = (
+        df_icu
+        .set_index("DT_ENTUTI")
+        .groupby(by="DT_ENTUTI")
+        .agg("count")
+        .rename(columns={df_cases.columns[0]: 'TotalCases'})
+        .sort_index()
+    )
+
+    # if icu_capacity > 0:
+    #     icu_rate = (icu_occupancy / icu_capacity) * 100
+    #     results['icu_occupancy_rate (%)'] = round(icu_rate, 2)
+    # else:
+    #     results['icu_occupancy_rate (%)'] = "N/A (ICU capacity is zero)"
+
+    ###############################################
+    # Population Vaccination Rate
+    ###############################################
+
+    # df = df[[]]
 
 
-# ##########################################################
-# # Initialize the Serper API wrapper as the search tool
-# # serper_search = GoogleSerperAPIWrapper(
-# #     # Optional: set search type to 'news' for better results relevant to the report
-# #     type="news"
-# # )
+    # if total_population > 0:
+    #     vac_rate = (people_vaccinated / total_population) * 100
+    #     results['population_vaccination_rate (%)'] = round(vac_rate, 2)
+    # else:
+    #     results['population_vaccination_rate (%)'] = "N/A (Total population is zero)"
 
-# ###########################################################
+    print(results)
+
+    return results
 
 
-# # # News Search Tool
-# # @tool
-# # def search_online_news(
-# #     query: str = "Síndrome Respiratória Aguda Grave",
-# #     num_results: int = 5,
-# #     start_date: str = start_date,
-# #     end_date: str = end_date) -> str:
-# #     """
-# #     Performs a real-time news search using the Serper API for relevant articles.
-    
-# #     Args:
-# #         query (str): The search query to find news about.
-# #         num_results (int): The maximum number of results to fetch (default is 5).
-        
-# #     Returns:
-# #         str: A JSON string containing the summarized news results.
-# #     """
-# #     print(f"Searching news for: {query} after:{start_date} before:{end_date} (Max {num_results} results)")
-    
-# #     try:
-# #         # Executing the search
-# #         raw_results: Dict = serper_search.results(query, num_results=num_results)
+####################################
+calculate_epidemiology_rates(
+    folder_path = "data/",
+    focus_column = focus_column
+)
+###################################
 
-# #         # Extracting and formatting key information from the 'news' array
-# #         news_items = []
-# #         if 'news' in raw_results:
-# #             for item in raw_results['news']:
-# #                 # Ensure the data is clean and relevant
-# #                 news_items.append({
-# #                     "title": item.get('title', 'N/A'),
-# #                     "snippet": item.get('snippet', 'No summary available.'),
-# #                     "source": item.get('source', 'N/A'),
-# #                     "link": item.get('link', 'N/A')
-# #                 })
-        
-# #         # Returning a clean, parsable JSON string for the LLM to synthesize
-# #         if news_items:
-# #             return json.dumps(news_items, indent=2)
-# #         else:
-# #             return "No relevant news articles were found for the query."
 
-# #     except Exception as e:
-# #         return f"Error executing Serper news search: {e}"
+
+
+
+
+
 
 # # PDF Generation Tool
 # def create_pdf_report(
@@ -374,64 +534,4 @@ generate_case_time_series_charts(
 #         return f"Error generating PDF: {e}"
 
 
-# # Calculating metrics
-# def calculate_epidemiology_rates(
-#     current_cases: int,
-#     previous_cases: int,
-#     current_deaths: int,
-#     cumulative_confirmed_cases: int,
-#     icu_occupancy: int,
-#     icu_capacity: int,
-#     total_population: int,
-#     people_vaccinated: int
-# ) -> Dict[str, Union[float, str]]:
-#     """
-#     Calculates four key epidemiological rates based on provided data.
 
-#     Args:
-#         current_cases (int): The number of new cases reported in the current period (e.g., today).
-#         previous_cases (int): The number of new cases reported in the previous period (e.g., yesterday).
-#         current_deaths (int): The number of new deaths reported in the current period.
-#         cumulative_confirmed_cases (int): The total, cumulative number of confirmed cases.
-#         icu_occupancy (int): The number of occupied ICU beds by case patients.
-#         icu_capacity (int): The total number of available ICU beds.
-#         total_population (int): The total population of the area.
-#         people_vaccinated (int): The number of people fully vaccinated.
-
-#     Returns:
-#         Dict[str, Union[float, str]]: A dictionary containing the four calculated rates, 
-#                                       or error messages if denominators are zero.
-#     """
-    
-#     results = {}
-
-#     # Rate of Case Increase (Percentage Change)
-#     # Measures the acceleration/deceleration of the epidemic wave.
-#     if previous_cases > 0:
-#         rate_increase = ((current_cases - previous_cases) / previous_cases) * 100
-#         results['case_increase_rate (%)'] = round(rate_increase, 2)
-#     else:
-#         results['case_increase_rate (%)'] = "N/A (Previous cases were zero)"
-
-#     # Death Rate
-#     if cumulative_confirmed_cases > 0:
-#         death_rate = (current_deaths / cumulative_confirmed_cases) * 100
-#         results['death_rate_cfr (%)'] = round(death_rate, 2)
-#     else:
-#         results['death_rate_cfr (%)'] = "N/A (Total confirmed cases were zero)"
-
-#     # ICU Occupancy Rate
-#     if icu_capacity > 0:
-#         icu_rate = (icu_occupancy / icu_capacity) * 100
-#         results['icu_occupancy_rate (%)'] = round(icu_rate, 2)
-#     else:
-#         results['icu_occupancy_rate (%)'] = "N/A (ICU capacity is zero)"
-
-#     # Population Vaccination Rate
-#     if total_population > 0:
-#         vac_rate = (people_vaccinated / total_population) * 100
-#         results['population_vaccination_rate (%)'] = round(vac_rate, 2)
-#     else:
-#         results['population_vaccination_rate (%)'] = "N/A (Total population is zero)"
-
-#     return results
