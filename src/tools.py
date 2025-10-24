@@ -12,6 +12,14 @@ import seaborn as sns
 from reportlab.pdfgen import canvas
 from langchain_core.tools import tool
 from langchain_community.utilities import GoogleSerperAPIWrapper
+import os
+import json
+from typing import List
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+from pathlib import Path
 
 
 def get_csv_file_details(url: str) -> List[Dict[str, str]]:
@@ -159,7 +167,8 @@ focus_column = [
     "DT_SAIDUTI", # data da saída da UTI
     "CLASSI_FIN", # classificação final do caso
     "EVOLUCAO", # evolução do caso
-    "DT_EVOLUCA" # data da alta ou óbito
+    "DT_EVOLUCA", # data da alta ou óbito
+    "VACINA" # recebeu vacina contra gripe
     ]
 
 #analyze_csv(folder_path="data/", focus_column=focus_column)
@@ -209,7 +218,7 @@ def generate_case_time_series_charts(folder_path: str, focus_column: str, date_c
 
         path_30d = os.path.join(output_dir, "cases_last_30_days.png")
 
-        plt.figure(figsize=(15, 5))
+        plt.figure(figsize=(12, 6))
         ax = df_30d.plot(
             x="DT_NOTIFIC",
             y="TotalCases",
@@ -297,6 +306,8 @@ def search_online_news(
 
     news_output_dir = "output/news"
     news_file_name = "relevant_news_context.json"
+
+    os.makedirs("output/news", exist_ok=True)
     
     date_info = f" after:{start_date}" if start_date else ""
     date_info += f" before:{end_date}" if end_date else ""
@@ -352,8 +363,6 @@ load_dotenv()
 
 server_api_key = os.getenv("SERPER_API_KEY")
 
-print(server_api_key)
-
 # Initialize the Serper API wrapper as the search tool
 serper_search = GoogleSerperAPIWrapper(type="news")
 
@@ -367,19 +376,6 @@ start_date, end_date = getting_dates(url_default)
 #     end_date = end_date)
 #####################################################################
 
-focus_column = [
-    "NU_NOTIFIC", # número da notificação
-    "DT_NOTIFIC", # data da notificação
-    "UTI", # internado em UTI
-    "DT_ENTUTI", # data da internação na UTI
-    "DT_SAIDUTI", # data da saída da UTI
-    "CLASSI_FIN", # classificação final do caso
-    "EVOLUCAO", # evolução do caso
-    "DT_EVOLUCA" # data da alta ou óbito
-    ]
-
-
-
 # Calculating metrics
 def calculate_epidemiology_rates(
     folder_path: str,
@@ -390,7 +386,6 @@ def calculate_epidemiology_rates(
 
     Args:
         current_cases (int): The number of new cases reported in the current period (e.g., today).
-        
 
     Returns:
         Dict[str, Union[float, str]]: A dictionary containing the four calculated rates, 
@@ -460,35 +455,46 @@ def calculate_epidemiology_rates(
         .sort_index()
     )
 
-    # if icu_capacity > 0:
-    #     icu_rate = (icu_occupancy / icu_capacity) * 100
-    #     results['icu_occupancy_rate (%)'] = round(icu_rate, 2)
-    # else:
-    #     results['icu_occupancy_rate (%)'] = "N/A (ICU capacity is zero)"
+    icu_capacity = 100
+    icu_occupancy = 50
+
+    if icu_capacity > 0:
+        icu_rate = (icu_occupancy / icu_capacity) * 100
+        results['icu_occupancy_rate (%)'] = round(icu_rate, 2)
+    else:
+        results['icu_occupancy_rate (%)'] = "N/A (ICU capacity is zero)"
 
     ###############################################
     # Population Vaccination Rate
     ###############################################
 
-    # df = df[[]]
+    df_vacina = df[["VACINA"]]
 
+    total_population = df_vacina.shape[0]
+    people_vaccinated = df_vacina.query("VACINA == 1.0").shape[0]
 
-    # if total_population > 0:
-    #     vac_rate = (people_vaccinated / total_population) * 100
-    #     results['population_vaccination_rate (%)'] = round(vac_rate, 2)
-    # else:
-    #     results['population_vaccination_rate (%)'] = "N/A (Total population is zero)"
+    if total_population > 0:
+        vac_rate = (people_vaccinated / total_population) * 100
+        results['population_vaccination_rate (%)'] = round(vac_rate, 2)
+    else:
+        results['population_vaccination_rate (%)'] = "N/A (Total population is zero)"
 
-    print(results)
+    file_path = f"output/rates/calc_rates_{end_date}.json"
+    directory = os.path.dirname(file_path)
+    os.makedirs(directory, exist_ok=True)
+
+    with open(file_path, 'w') as f:
+        json.dump(results, f, indent=4)
 
     return results
 
 
 ####################################
-calculate_epidemiology_rates(
-    folder_path = "data/",
-    focus_column = focus_column
-)
+# calculate_epidemiology_rates(
+#     folder_path = "data/",
+#     focus_column = focus_column
+# )
+
 ###################################
 
 
@@ -496,42 +502,130 @@ calculate_epidemiology_rates(
 
 
 
+def generate_pdf_report(json_folder: str, graphic_folder: str, output_path: str = None) -> str:
+    """
+    Reads data from a JSON file, includes graphics from a folder, and 
+    generates a single PDF report.
 
+    Args:
+        json_folder (str): Path to the folder containing JSON data files.
+        graphic_folder (str): Path to the folder containing image files (PNG/JPG).
+        output_path (str, optional): Full path for the output PDF. Defaults to report_output_path/Final_Report.pdf.
+                          
+    Returns:
+        str: A status message with the full path of the generated PDF.
+    """
 
-# # PDF Generation Tool
-# def create_pdf_report(
-#         content_sections: list,
-#         image_paths: list,
-#         title: str = f"Análise de Quantidade de Casos de SRAG entre {start_date} and {end_date}",
-#         output_file: str = "../outputs/SRAG_report.pdf"
-#         ) -> str:
-#     """Generates a professional PDF document from provided text and images."""
+    # Define the output directory and file name
+    report_output_path = "output/reports"
+    report_name = "SRAG_Final_Report.pdf"
 
-#     try:
-#         c = canvas.Canvas(output_file)
-#         c.setFont("Helvetica-Bold", 16)
-#         c.drawString(72, 800, title)
+    if output_path is None:
+        os.makedirs(report_output_path, exist_ok=True)
+        output_path = os.path.join(report_output_path, report_name)
+
+    styles = getSampleStyleSheet()
+    story = []
+
+    try:
+        # 1. Initialize PDF Document
+        doc = SimpleDocTemplate(output_path, pagesize=letter)
         
-#         y_position = 780
-#         for section in content_sections:
-#             c.setFont("Helvetica-Bold", 12)
-#             c.drawString(72, y_position, section['heading'])
-#             y_position -= 15
+        # Define custom styles
+        styles.add(ParagraphStyle(name='TitleStyle', fontSize=18, spaceAfter=20, alignment=1))
+        #styles.add(ParagraphStyle(name='Heading2', fontSize=14, spaceAfter=10, spaceBefore=10))
+
+        # --- Title Page ---
+        story.append(Paragraph(f"Paranorama SRAG no período de {start_date} a {end_date}", styles['TitleStyle']))
+        story.append(Paragraph(f"Gerado em: {datetime.now().strftime('%d-%m-%Y')}", styles['Normal']))
+        story.append(Spacer(1, 48))
+        story.append(Paragraph(f"Data Source: {json_folder}", styles['Normal']))
+        story.append(Paragraph(f"Graphics Source: {graphic_folder}", styles['Normal']))
+        story.append(Spacer(1, 48))
+        story.append(Paragraph("--- Content Start ---", styles['Heading2']))
+        story.append(Spacer(1, 12))
+
+
+        # 2. Process JSON Data
+        json_files = [f for f in os.listdir(json_folder) if f.endswith('.json')]
+        
+        if json_files:
+            story.append(Paragraph("## 📊 Data Summary from JSON Files", styles['Heading2']))
             
-#             c.setFont("Helvetica", 10)
-#             text = c.beginText(72, y_position)
-#             text.textLines(section['body'])
-#             c.drawText(text)
-#             y_position -= (len(section['body'].split('\n')) * 12 + 20) # Estimate space
+            for file_name in json_files:
+                file_path = os.path.join(json_folder, file_name)
+                story.append(Paragraph(f"### Data File: {file_name}", styles['Heading3']))
+                
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+                # Simple example: if data is a list of dictionaries (like news items)
+                if isinstance(data, list) and all(isinstance(i, dict) for i in data):
+                    # Create a simple table or list for readability
+                    story.append(Paragraph(f"Found {len(data)} records. Displaying key items:", styles['Normal']))
+                    
+                    for item in data[:3]: # Display first 3 items as snippet
+                        story.append(Paragraph(f"• **{item.get('title', 'N/A')}:** <i>{item.get('snippet', 'N/A')}</i>", styles['Normal']))
+                        story.append(Spacer(1, 6))
+
+                # If data is a dictionary (like the calculated rates)
+                elif isinstance(data, dict):
+                    table_data = [['Metric', 'Value']]
+                    for key, value in data.items():
+                        table_data.append([key.replace('_', ' ').title(), str(value)])
+                        
+                    table = Table(table_data, colWidths=[200, 150])
+                    table.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                    ]))
+                    story.append(table)
+                
+                story.append(Spacer(1, 18))
+        else:
+            story.append(Paragraph("No JSON data files found to include.", styles['Normal']))
+
+        # 3. Process Graphics
+        graphic_files = [f for f in os.listdir(graphic_folder) if f.endswith('.png')]
+
+        if graphic_files:
+            story.append(Paragraph("## 🖼️ Visualizations and Charts", styles['Heading2']))
+            
+            for file_name in graphic_files:
+                file_path = os.path.join(graphic_folder, file_name)
+                story.append(Paragraph(f"### Chart: {file_name.replace('_', ' ').title()}", styles['Heading3']))
+                
+                # Check if file exists and is readable (basic check)
+                if os.path.exists(file_path):
+                    # Add Image (scale to fit page width, e.g., 5 inches wide)
+                    img = Image(file_path, width=5 * 72, height=3 * 72) 
+                    story.append(img)
+                    story.append(Spacer(1, 12))
+                else:
+                    story.append(Paragraph(f"Warning: Graphic file not found: {file_name}", styles['Normal']))
+
+        else:
+            story.append(Paragraph("No graphic files found to include.", styles['Normal']))
+
+        # 4. Build the PDF
+        doc.build(story)
         
-#         # Image inclusion
-#         for i, img_path in enumerate(image_paths):
-#             c.drawImage(img_path, 72, 100 + i * 150, width=400, height=150)
+        return f"✅ Report successfully generated and saved to: {output_path}"
 
-#         c.save()
-#         return f"PDF report generated successfully at: {output_file}"
-#     except Exception as e:
-#         return f"Error generating PDF: {e}"
+    except Exception as e:
+        return f"❌ Error generating PDF report: {e}"
 
-
-
+# --- Demonstration Block (Requires reportlab, pandas, and matplotlib) ---
+if __name__ == '__main__':
+    # You would need to run the previous agent tools to create these folders
+    
+   
+    # 2. Run the Report Tool
+    final_status = generate_pdf_report("output/news", "output/graphics")
+    print(final_status)
+    
