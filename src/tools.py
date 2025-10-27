@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import seaborn as sns
 from reportlab.pdfgen import canvas
-from langchain_core.tools import tool
+#from langchain_core.tools import tool
 from langchain_community.utilities import GoogleSerperAPIWrapper
 import os
 import json
@@ -36,7 +36,7 @@ def get_csv_file_details(url: str) -> List[Dict[str, str]]:
     
     try:
         # Fetch the HTML content
-        print(f"Fetching content from: {url}")
+        print(f"Procurando dados mais recentes no endereço {url}")
         headers = {'User-Agent': 'AgenticCSVScraper/1.0'}
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
@@ -53,23 +53,15 @@ def get_csv_file_details(url: str) -> List[Dict[str, str]]:
                 csv_links.append(link.text.strip())
         
         if not csv_links:
-            return [{"status": "No CSV files found.", "details": "The scraper did not find any links ending in .csv on the page."}]
+            return [{"status": "Nenhum arquivo CSV encontrado.", "details": "O scraper não encontrou nenhum link de arquivo .csv na página raiz."}]
             
+        print(f"Dados mais recentes encontrados no endereço {csv_links[0]}")
         return csv_links[0]
 
     except requests.exceptions.RequestException as e:
-        return [{"status": "Web Scraping Failed", "details": f"Network/HTTP Error: {e}"}]
+        return [{"status": "Web Scraping Falhou", "details": f"Network/HTTP Error: {e}"}]
     except Exception as e:
-        return [{"status": "Parsing Error", "details": f"An unexpected error occurred: {e}"}]
-
-
-###########################################################
-# Open DataSUS base URL
-url = "https://opendatasus.saude.gov.br/dataset/srag-2021-a-2024/resource/20c49de3-ddc3-4b76-a942-1518eaae9c91"
-
-# URL of data in CSV
-url_default = get_csv_file_details(url)
-###########################################################
+        return [{"status": "Parsing Error", "details": f"Um erro inesperado ocorreu: {e}"}]
 
 def getting_dates(url_str: str) -> str:
     """Returns a start_date and an end_date strings in format %d-%m-%Y.
@@ -83,11 +75,12 @@ def getting_dates(url_str: str) -> str:
     start_date = datetime.strptime(end_date, "%d-%m-%Y") - timedelta(days=365)
     start_date = start_date.strftime("%d-%m-%Y")
 
+    print(f"Gerando relatório considerando dados de {start_date} a {end_date}.")
+
     return start_date, end_date
 
-
 def download_file_if_missing(
-        url: str,
+        download_url: str,
         local_path: str
         ) -> str:
     """
@@ -95,7 +88,7 @@ def download_file_if_missing(
     at the given local_path.
     
     Args:
-        url (str): The URL of the file to download.
+        download_url (str): The URL of the file to download.
         local_path (str): The full path including the filename where the 
                           file should be saved.
                           
@@ -103,18 +96,18 @@ def download_file_if_missing(
         str: A status message indicating success, failure, or if the file was skipped.
     """
 
-    _, end_date = getting_dates(url_str=url)
-    local_path = local_path[:-4] + end_date + local_path[-4:]
+    _, end_date = getting_dates(url_str=download_url)
+    local_path = local_path + "SRAG-" + end_date + ".csv"
 
     # Checking local existence
     if os.path.exists(local_path):
         print(f"✅ File already exists locally at: {local_path}. Download skipped.")
         return None
 
-    print(f"File not found locally. Attempting download from: {url}")
+    print(f"File not found locally. Attempting download from: {download_url}")
     
     try:
-        response = requests.get(url)
+        response = requests.get(download_url)
         response.raise_for_status()  # Raise an exception for bad status codes
         with open(local_path, 'wb') as f:
             f.write(response.content)
@@ -133,50 +126,8 @@ def download_file_if_missing(
         print(f"❌ An unexpected error occurred during file saving: {e}")
         return None
 
-
-def analyze_csv(folder_path: str, focus_column: str) -> str:
-    """Reads a CSV, calculates descriptive statistics, and finds key trends."""
-
-    start_date, end_date = getting_dates(os.listdir(folder_path)[0])
-
-    try:
-        file_path = folder_path + os.listdir(folder_path)[0]
-        df = pd.read_csv(file_path, delimiter=";", usecols=focus_column)
-        
-        for col in focus_column:
-            if col[:2] == "DT":
-                df[col] = pd.to_datetime(df[col], format="%Y-%m-%d")           
-
-        # df = (
-        #     df
-        #     .query(f"DT_NOTIFIC => '{start_date}'")
-        #     .query(f"DT_NOTIFIC <= '{end_date}'")
-        # )
-
-        return df
-    except Exception as e:
-        return f"Error during data analysis: {e}"
-
-
-###########################################################
-focus_column = [
-    "NU_NOTIFIC", # número da notificação
-    "DT_NOTIFIC", # data da notificação
-    "UTI", # internado em UTI
-    "DT_ENTUTI", # data da internação na UTI
-    "DT_SAIDUTI", # data da saída da UTI
-    "CLASSI_FIN", # classificação final do caso
-    "EVOLUCAO", # evolução do caso
-    "DT_EVOLUCA", # data da alta ou óbito
-    "VACINA" # recebeu vacina contra gripe
-    ]
-
-#analyze_csv(folder_path="data/", focus_column=focus_column)
-
-###########################################################
-
 # Graphics Tool
-def generate_case_time_series_charts(folder_path: str, focus_column: str, date_col: str = 'DT_NOTIFIC') -> str:
+def generate_case_time_series_charts(local_path: str, date_col: str = 'DT_NOTIFIC') -> str:
     """
     Generates two time-series charts from a CSV: 
     1) Cases in the last 30 days.
@@ -194,8 +145,10 @@ def generate_case_time_series_charts(folder_path: str, focus_column: str, date_c
     os.makedirs(output_dir, exist_ok=True)
 
     try:
-        df = analyze_csv(folder_path, focus_column)
-        df = df[["NU_NOTIFIC","DT_NOTIFIC"]]
+        file_path = local_path + os.listdir(local_path)[0]
+        df = pd.read_csv(file_path, delimiter=";", usecols=["NU_NOTIFIC","DT_NOTIFIC"])
+        
+        df["DT_NOTIFIC"] = pd.to_datetime(df["DT_NOTIFIC"], format="%Y-%m-%d")  
     
         df = (
             df
@@ -272,17 +225,11 @@ def generate_case_time_series_charts(folder_path: str, focus_column: str, date_c
         return f"🎉 Successfully generated and saved two charts:\n1. 30-Day Trend: {path_30d}\n2. 12-Month Trend: {path_12m}"
 
     except FileNotFoundError:
-        return f"❌ Error: CSV file not found at {folder_path}"
+        return f"❌ Error: CSV file not found at {local_path}"
     except KeyError as e:
         return f"❌ Error: Required column {e} not found in the CSV file."
     except Exception as e:
         return f"❌ An unexpected error occurred during chart generation: {e}"
-
-
-# News Search Tool
-#import os
-#from typing import Dict
-# from langchain_community.utilities import GoogleSerperAPIWrapper 
 
 def search_online_news(
     query: str = "Síndrome Respiratória Aguda Grave",
@@ -355,31 +302,10 @@ def search_online_news(
     except Exception as e:
         return f"❌ Error executing Serper news search or saving file: {e}"
 
-
-#####################################################################
-from dotenv import load_dotenv
-
-load_dotenv()
-
-server_api_key = os.getenv("SERPER_API_KEY")
-
-# Initialize the Serper API wrapper as the search tool
-serper_search = GoogleSerperAPIWrapper(type="news")
-
-start_date, end_date = getting_dates(url_default)
-
-
-# search_online_news(
-#     query = "Síndrome Respiratória Aguda Grave",
-#     num_results = 5,
-#     start_date = start_date,
-#     end_date = end_date)
-#####################################################################
-
 # Calculating metrics
 def calculate_epidemiology_rates(
     folder_path: str,
-    focus_column: str
+    selected_columns: str
 ) -> Dict[str, Union[float, str]]:
     """
     Calculates four key epidemiological rates based on provided data.
@@ -392,7 +318,13 @@ def calculate_epidemiology_rates(
                                       or error messages if denominators are zero.
     """
     
-    df = analyze_csv(folder_path, focus_column)
+    # try:
+    #     file_path = folder_path + os.listdir(folder_path)[0]
+    #     df = pd.read_csv(file_path, delimiter=";", usecols=selected_columns)
+        
+    #     for col in selected_columns:
+    #         if col[:2] == "DT":
+    #             df[col] = pd.to_datetime(df[col], format="%Y-%m-%d")  
 
     results = {}
 
@@ -487,20 +419,6 @@ def calculate_epidemiology_rates(
         json.dump(results, f, indent=4)
 
     return results
-
-
-####################################
-# calculate_epidemiology_rates(
-#     folder_path = "data/",
-#     focus_column = focus_column
-# )
-
-###################################
-
-
-
-
-
 
 def generate_pdf_report(json_folder: str, graphic_folder: str, output_path: str = None) -> str:
     """
@@ -620,12 +538,12 @@ def generate_pdf_report(json_folder: str, graphic_folder: str, output_path: str 
     except Exception as e:
         return f"❌ Error generating PDF report: {e}"
 
-# --- Demonstration Block (Requires reportlab, pandas, and matplotlib) ---
-if __name__ == '__main__':
-    # You would need to run the previous agent tools to create these folders
+# # --- Demonstration Block (Requires reportlab, pandas, and matplotlib) ---
+# if __name__ == '__main__':
+#     # You would need to run the previous agent tools to create these folders
     
    
-    # 2. Run the Report Tool
-    final_status = generate_pdf_report("output/news", "output/graphics")
-    print(final_status)
+#     # 2. Run the Report Tool
+#     final_status = generate_pdf_report("output/news", "output/graphics")
+#     print(final_status)
     
