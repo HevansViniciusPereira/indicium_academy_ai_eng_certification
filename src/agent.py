@@ -1,14 +1,15 @@
-from typing import Annotated, List, Literal, TypedDict
+from typing import TypedDict
 from langgraph.graph import START, END, StateGraph
 from tools import (
     get_csv_file_details,
     getting_dates,
     download_file_if_missing,
     generate_case_time_series_charts,
-    #search_online_news,
-    #calculate_epidemiology_rates,
-    #generate_pdf_report
+    search_online_news,
+    calculate_epidemiology_rates,
+    generate_pdf_report
 )
+
 
 class ReportState(TypedDict):
     """descricao"""
@@ -39,25 +40,72 @@ def node_download_csv(state: ReportState) -> ReportState:
 def node_generate_graphics(state: ReportState) -> ReportState:
     local_path = state["local_path"]
     date_col = 'DT_NOTIFIC'
-
     generate_case_time_series_charts(local_path, date_col)
+    return state
+
+def node_search_news(state: ReportState) -> ReportState:
+    start_date = state["start_date"]
+    end_date = state["end_date"]
+
+    search_online_news(
+        query = "Notícias sobre Síndrome Respiratória Aguda Grave no Brasil",
+        num_results = 5,
+        start_date = start_date,
+        end_date = end_date
+    )
+
+    return state
+
+def node_metrics(state: ReportState) -> ReportState:
+    local_path = state["local_path"]
+    selected_columns = state["selected_columns"]
+    end_date = state["end_date"]
+
+    calculate_epidemiology_rates(
+        local_path,
+        selected_columns,
+        end_date
+    )
 
     return state
 
 
+def node_generate_report(state: ReportState) -> ReportState:
+    start_date = state["start_date"]
+    end_date = state["end_date"]
+
+    generate_pdf_report(
+        start_date=start_date,
+        end_date=end_date
+        )
+
+    return state
+
+# Creating graph
 builder = StateGraph(ReportState)
 builder.add_node("recent_csv_url", node_recent_csv_url)
 builder.add_node("getting_dates", node_getting_dates)
 builder.add_node("download_csv", node_download_csv)
 builder.add_node("generate_graphics", node_generate_graphics)
+builder.add_node("search_news", node_search_news)
+builder.add_node("metrics", node_metrics)
+builder.add_node("generate_report", node_generate_report)
 
 builder.add_edge(START, "recent_csv_url")
 builder.add_edge("recent_csv_url", "getting_dates")
 builder.add_edge("getting_dates", "download_csv")
 builder.add_edge("download_csv", "generate_graphics")
-builder.add_edge("generate_graphics", END)
+builder.add_edge("generate_graphics", "search_news")
+builder.add_edge("search_news", "metrics")
+builder.add_edge("metrics", "generate_report")
+builder.add_edge("generate_report", END)
 graph = builder.compile()
 
+#import matplotlib.pyplot as plt
+#plt.figure(figsize=(12, 6))
+#print(graph.get_graph().draw_mermaid_png())
+#plt.savefig("output/graphics/graph.png")
+#plt.close()
 
 
 selected_columns = [

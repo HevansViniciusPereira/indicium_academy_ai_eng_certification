@@ -20,6 +20,15 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from pathlib import Path
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
+server_api_key = os.getenv("SERPER_API_KEY")
+
+# Initialize the Serper API wrapper as the search tool
+serper_search = GoogleSerperAPIWrapper(type="news")
 
 
 def get_csv_file_details(url: str) -> List[Dict[str, str]]:
@@ -134,7 +143,7 @@ def generate_case_time_series_charts(local_path: str, date_col: str = 'DT_NOTIFI
     2) Cases in the last 12 months.
 
     Args:
-        folder_path (str): Path to folder containing the CSV file.
+        local_path (str): Path to folder containing the CSV file.
         date_col (str): The name of the column containing date/time information.
                           
     Returns:
@@ -304,8 +313,9 @@ def search_online_news(
 
 # Calculating metrics
 def calculate_epidemiology_rates(
-    folder_path: str,
-    selected_columns: str
+    local_path: str,
+    selected_columns: str,
+    end_date: str
 ) -> Dict[str, Union[float, str]]:
     """
     Calculates four key epidemiological rates based on provided data.
@@ -318,13 +328,17 @@ def calculate_epidemiology_rates(
                                       or error messages if denominators are zero.
     """
     
-    # try:
-    #     file_path = folder_path + os.listdir(folder_path)[0]
-    #     df = pd.read_csv(file_path, delimiter=";", usecols=selected_columns)
+    try:
+        file_path = local_path + os.listdir(local_path)[0]
+        df = pd.read_csv(file_path, delimiter=";", usecols=selected_columns)
         
-    #     for col in selected_columns:
-    #         if col[:2] == "DT":
-    #             df[col] = pd.to_datetime(df[col], format="%Y-%m-%d")  
+        for col in selected_columns:
+            if col[:2] == "DT":
+                df[col] = pd.to_datetime(df[col], format="%Y-%m-%d")
+
+    except:
+        print("Não foi possível ler o conjunto de dados!")
+        return None
 
     results = {}
 
@@ -420,7 +434,7 @@ def calculate_epidemiology_rates(
 
     return results
 
-def generate_pdf_report(json_folder: str, graphic_folder: str, output_path: str = None) -> str:
+def generate_pdf_report(start_date: str, end_date: str) -> str:
     """
     Reads data from a JSON file, includes graphics from a folder, and 
     generates a single PDF report.
@@ -436,11 +450,13 @@ def generate_pdf_report(json_folder: str, graphic_folder: str, output_path: str 
 
     # Define the output directory and file name
     report_output_path = "output/reports"
-    report_name = "SRAG_Final_Report.pdf"
+    report_name = f"SRAG_Final_Report_{end_date}.pdf"
+    json_folder = "output/news"
+    graphic_folder = "output/graphics"
+    #output_path
 
-    if output_path is None:
-        os.makedirs(report_output_path, exist_ok=True)
-        output_path = os.path.join(report_output_path, report_name)
+    os.makedirs(report_output_path, exist_ok=True)
+    output_path = os.path.join(report_output_path, report_name)
 
     styles = getSampleStyleSheet()
     story = []
