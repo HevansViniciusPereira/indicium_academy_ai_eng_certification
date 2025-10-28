@@ -3,29 +3,24 @@ import json
 import requests
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
-#import re
 from typing import List, Dict, Union
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import seaborn as sns
-from reportlab.pdfgen import canvas
-#from langchain_core.tools import tool
 from langchain_community.utilities import GoogleSerperAPIWrapper
-import os
-import json
-from typing import List
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
-from pathlib import Path
 from dotenv import load_dotenv
 
 
 load_dotenv()
 
 server_api_key = os.getenv("SERPER_API_KEY")
+huggingface_api_token = os.getenv("HUGGINGFACEHUB_API_TOKEN")
+
 
 # Initialize the Serper API wrapper as the search tool
 serper_search = GoogleSerperAPIWrapper(type="news")
@@ -261,7 +256,7 @@ def search_online_news(
     """
 
     news_output_dir = "output/news"
-    news_file_name = "relevant_news_context.json"
+    news_file_name = f"news_context_{end_date}.json"
 
     os.makedirs("output/news", exist_ok=True)
     
@@ -304,7 +299,8 @@ def search_online_news(
             with open(full_file_path, 'w', encoding='utf-8') as f:
                 json.dump(news_items, f, indent=4, ensure_ascii=False)
                 
-            return f"🎉 Relevant news context successfully saved to: {full_file_path}"
+            print(f"🎉 Relevant news context successfully saved to: {full_file_path}")
+            return news_items
         else:
             return "No relevant news articles were found for the query and no file was saved."
 
@@ -434,7 +430,7 @@ def calculate_epidemiology_rates(
 
     return results
 
-def generate_pdf_report(start_date: str, end_date: str) -> str:
+def generate_pdf_report(start_date: str, end_date: str, content: str) -> str:
     """
     Reads data from a JSON file, includes graphics from a folder, and 
     generates a single PDF report.
@@ -473,12 +469,13 @@ def generate_pdf_report(start_date: str, end_date: str) -> str:
         story.append(Paragraph(f"Paranorama SRAG no período de {start_date} a {end_date}", styles['TitleStyle']))
         story.append(Paragraph(f"Gerado em: {datetime.now().strftime('%d-%m-%Y')}", styles['Normal']))
         story.append(Spacer(1, 48))
-        story.append(Paragraph(f"Data Source: {json_folder}", styles['Normal']))
-        story.append(Paragraph(f"Graphics Source: {graphic_folder}", styles['Normal']))
+        #story.append(Paragraph(f"Data Source: {json_folder}", styles['Normal']))
+        #story.append(Paragraph(f"Graphics Source: {graphic_folder}", styles['Normal']))
         story.append(Spacer(1, 48))
         story.append(Paragraph("--- Content Start ---", styles['Heading2']))
         story.append(Spacer(1, 12))
 
+        story.append(Paragraph(f"### Data File: {content}", styles['Heading3']))
 
         # 2. Process JSON Data
         json_files = [f for f in os.listdir(json_folder) if f.endswith('.json')]
@@ -553,13 +550,3 @@ def generate_pdf_report(start_date: str, end_date: str) -> str:
 
     except Exception as e:
         return f"❌ Error generating PDF report: {e}"
-
-# # --- Demonstration Block (Requires reportlab, pandas, and matplotlib) ---
-# if __name__ == '__main__':
-#     # You would need to run the previous agent tools to create these folders
-    
-   
-#     # 2. Run the Report Tool
-#     final_status = generate_pdf_report("output/news", "output/graphics")
-#     print(final_status)
-    
