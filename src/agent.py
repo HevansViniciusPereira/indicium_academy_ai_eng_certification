@@ -8,6 +8,7 @@ from tools import (
     generate_case_time_series_charts,
     search_online_news,
     calculate_epidemiology_rates,
+    analyze_graphic,
     generate_pdf_report
 )
 import os
@@ -54,7 +55,11 @@ class ReportState(TypedDict):
     local_path: str
     selected_columns: list
     news: str
-    content: str
+    summary: str
+    recent_developments: str
+    perspectives: str
+    desc_12_months: str
+    desc_30_days: str
 
 initial_state = ReportState(
     query="Notícias sobre Síndrome Respiratória Aguda Grave no Brasil.",
@@ -118,54 +123,84 @@ def node_metrics(state: ReportState) -> ReportState:
 
     return state
 
+def node_analyze_graphics(state: ReportState) -> ReportState:
+
+    desc_12_months, desc_30_days = analyze_graphic(
+        graphic_12_months_path="../output/graphics/cases_last_12_months.png",
+        graphic_30_days_path="../output/graphics/cases_last_30_days.png"
+        )
+
+    state["desc_12_months"] = desc_12_months
+    state["desc_30_days"] = desc_30_days
+    
+    return state
+
 def node_create_content(state: ReportState) -> ReportState:
 
     news = state["news"]
     query = state["query"]
-    end_date = state["end_date"]
 
     try:
         llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
 
-        prompt = f"""
-            You are an expert geopolitical and epidemiological analyst. Your task is to synthesize news content.
-            The primary subject is: '{query}'.
-            The following is a JSON array of the most recent news articles found:
-            --- NEWS DATA START ---
+        new_prompt = f"""
+            Você é um analista geopolítico e epidemiológico especialista.
+            Sua tarefa é sintetizar conteúdo noticioso.
+            O tema principal é: '{query}'. A seguir, é apresentado um array JSON 
+            dos artigos de notícias mais recentes encontrados:
+            --- INÍCIO DOS DADOS DE NOTÍCIAS ---
             {news}
-            --- NEWS DATA END ---
-
-            Generate a detailed report content in Markdown format, following these instructions:
-            1. Start with a main heading '## Key Findings and Context for "{query}"'.
-            2. Write a one-paragraph executive summary (under 5 sentences).
-            3. Create a section '### Recent Developments' with a bulleted list of 3-5 key facts/events, citing the source title for each.
-            4. Conclude with a section '### Outlook' containing a one-paragraph synthesis of the overall trend or risk.
+            --- FIM DOS DADOS DE NOTÍCIAS ---
+            
+            Gere conteúdo para um relatório detalhado no formato Markdown, seguindo estas instruções: 
+            1. Inicie com um cabeçalho principal: '## Principais Descobertas e Contexto para "{query}"'.
+            2. Escreva um resumo executivo de um parágrafo (com menos de 5 frases).
+            3. Crie uma seção '### Desenvolvimentos Recentes' com uma lista de 3 a 5 fatos/eventos-chave em formato de lista com marcadores, citando o título da fonte para cada item.
+            4. Conclua com uma seção '### Perspectivas' contendo uma síntese em um parágrafo da tendência ou risco geral.
         """
 
-        result = llm.invoke(prompt)
+        result = llm.invoke(new_prompt)
+        contents = result.content.split("###")
+
+        summary = contents[1].split("Resumo Executivo")[1]
+        recent_developments = contents[2].split("Desenvolvimentos Recentes")[1]
+        perspectives = contents[3].split("Perspectivas")[1]
 
     except Exception as e:
-        print(f"ERROR: Failed to initialize LLM. {e}")
+        print(f"{e}")
         return None
-
-    state["content"] = result.content
+    
+    recent_developments = recent_developments.replace("**","").replace("* ","\n")
+    print(recent_developments)
+    
+    state["summary"] = summary
+    state["recent_developments"] = recent_developments
+    state["perspectives"] = perspectives
 
     return state
 
 def node_generate_report(state: ReportState) -> ReportState:
     start_date = state["start_date"]
     end_date = state["end_date"]
-    #content = state["content"]
+    summary = state["summary"]
+    recent_developments = state["recent_developments"]
+    perspectives = state["perspectives"]
+    desc_12_months = state["desc_12_months"]
+    desc_30_days = state["desc_30_days"]
 
     print("Generating report.")
 
     generate_pdf_report(
         start_date=start_date,
         end_date=end_date,
-        content="textooooooooooooooooooooooooooooooooooooooooooooooooooo"
+        summary=summary,
+        recent_developments=recent_developments,
+        perspectives=perspectives,
+        desc_12_months=desc_12_months,
+        desc_30_days=desc_30_days
         )
     
-    print("Final")
+    print("Report Generated.")
 
     return state
 
@@ -181,6 +216,7 @@ builder.add_node("generate_graphics", node_generate_graphics)
 builder.add_node("search_news", node_search_news)
 builder.add_node("metrics", node_metrics)
 builder.add_node("create_content", node_create_content)
+builder.add_node("analyze_graphics", node_analyze_graphics)
 builder.add_node("generate_report", node_generate_report)
 
 builder.add_edge(START, "recent_csv_url")
@@ -189,19 +225,9 @@ builder.add_edge("getting_dates", "download_csv")
 builder.add_edge("download_csv", "generate_graphics")
 builder.add_edge("generate_graphics", "search_news")
 builder.add_edge("search_news", "metrics")
-
-#builder.add_edge("metrics", "create_content")
-#builder.add_edge("create_content", "generate_report")
-
-builder.add_edge("metrics", "generate_report")
-
+builder.add_edge("metrics", "create_content")
+builder.add_edge("create_content", "analyze_graphics")
+builder.add_edge("analyze_graphics", "generate_report")
 builder.add_edge("generate_report", END)
 graph = builder.compile()
 graph.invoke(initial_state)
-
-
-#import matplotlib.pyplot as plt
-#plt.figure(figsize=(12, 6))
-#print(graph.get_graph().draw_mermaid_png())
-#plt.savefig("output/graphics/graph.png")
-#plt.close()

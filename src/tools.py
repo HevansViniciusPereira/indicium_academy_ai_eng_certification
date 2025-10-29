@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import seaborn as sns
 from langchain_community.utilities import GoogleSerperAPIWrapper
+from langchain_google_genai import ChatGoogleGenerativeAI
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -78,8 +79,6 @@ def getting_dates(url_str: str) -> str:
     # Getting the date 30 days before data publication
     start_date = datetime.strptime(end_date, "%d-%m-%Y") - timedelta(days=365)
     start_date = start_date.strftime("%d-%m-%Y")
-
-    print(f"Gerando relatório considerando dados de {start_date} a {end_date}.")
 
     return start_date, end_date
 
@@ -258,10 +257,16 @@ def search_online_news(
     news_output_dir = "output/news"
     news_file_name = f"news_context_{end_date}.json"
 
-    os.makedirs("output/news", exist_ok=True)
+    # Checking local existence
+    if os.path.exists(news_output_dir):
+        print(f"✅ News exists locally at: {news_output_dir}. Download skipped.")
+        return None
+
+    os.makedirs(news_output_dir, exist_ok=True)
     
     date_info = f" after:{start_date}" if start_date else ""
     date_info += f" before:{end_date}" if end_date else ""
+
     
     print(f"Searching news for: {query}{date_info} (Max {num_results} results)")
     
@@ -430,7 +435,48 @@ def calculate_epidemiology_rates(
 
     return results
 
-def generate_pdf_report(start_date: str, end_date: str, content: str) -> str:
+def analyze_graphic(graphic_12_months_path: str, graphic_30_days_path: str):
+    try:
+        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
+
+        descriptions = []
+
+        for path in [graphic_12_months_path, graphic_30_days_path]:
+            prompt = f"""
+                Você é um analista epidemiológico especialista.
+                Descreva o gráfico {path} em um parágrafo, enfatizando momentos de mais 
+                casos e de menos casos e estabelecendo isso com as estações do ano, se o gráfico 
+                contiver informações mensais. Se o gráfico tiver informações diárias, elabore uma 
+                descrição da situação recente e explore possíveis sazonalidades de curto prazo e 
+                tente explicar esse comportamento.
+                Escreva também sobre como este gráfico poderia ser utilizado pelo poder público 
+                para planejar ações de saúde como, por exemplo, vacinação.
+
+                Evite começar a resposta com 'Como analista epidemiológico'. Vá Direto para 
+                a análise e seja sucinto.
+            """
+
+            result = llm.invoke(prompt)
+            descriptions.append(result.content)
+
+    except Exception as e:
+        print(e)
+
+    desc_12_months, desc_30_days = descriptions
+
+    return desc_12_months, desc_30_days
+
+
+
+def generate_pdf_report(
+        start_date: str,
+        end_date: str,
+        summary: str,
+        recent_developments: str,
+        perspectives: str,
+        desc_12_months:str,
+        desc_30_days:str
+        ) -> str:
     """
     Reads data from a JSON file, includes graphics from a folder, and 
     generates a single PDF report.
@@ -447,9 +493,9 @@ def generate_pdf_report(start_date: str, end_date: str, content: str) -> str:
     # Define the output directory and file name
     report_output_path = "output/reports"
     report_name = f"SRAG_Final_Report_{end_date}.pdf"
-    json_folder = "output/news"
     graphic_folder = "output/graphics"
-    #output_path
+    file_path_12months = "output/graphics/cases_last_12_months.png"
+    file_path_30days = "output/graphics/cases_last_30_days.png"
 
     os.makedirs(report_output_path, exist_ok=True)
     output_path = os.path.join(report_output_path, report_name)
@@ -458,92 +504,52 @@ def generate_pdf_report(start_date: str, end_date: str, content: str) -> str:
     story = []
 
     try:
-        # 1. Initialize PDF Document
+        # Initialize PDF Document
         doc = SimpleDocTemplate(output_path, pagesize=letter)
         
         # Define custom styles
-        styles.add(ParagraphStyle(name='TitleStyle', fontSize=18, spaceAfter=20, alignment=1))
-        #styles.add(ParagraphStyle(name='Heading2', fontSize=14, spaceAfter=10, spaceBefore=10))
+        styles.add(ParagraphStyle(name='TitleStyle', fontSize=18, spaceAfter=25, alignment=1))
 
-        # --- Title Page ---
+        # Adding title
         story.append(Paragraph(f"Paranorama SRAG no período de {start_date} a {end_date}", styles['TitleStyle']))
         story.append(Paragraph(f"Gerado em: {datetime.now().strftime('%d-%m-%Y')}", styles['Normal']))
-        story.append(Spacer(1, 48))
-        #story.append(Paragraph(f"Data Source: {json_folder}", styles['Normal']))
-        #story.append(Paragraph(f"Graphics Source: {graphic_folder}", styles['Normal']))
-        story.append(Spacer(1, 48))
-        story.append(Paragraph("--- Content Start ---", styles['Heading2']))
+        story.append(Spacer(1, 20))
+
+        # Adding paragraph
+        story.append(Paragraph("Resumo Executivo", styles['Heading2']))
+        story.append(Paragraph(f"{summary}"))
         story.append(Spacer(1, 12))
-
-        story.append(Paragraph(f"### Data File: {content}", styles['Heading3']))
-
-        # 2. Process JSON Data
-        json_files = [f for f in os.listdir(json_folder) if f.endswith('.json')]
-        
-        if json_files:
-            story.append(Paragraph("## 📊 Data Summary from JSON Files", styles['Heading2']))
-            
-            for file_name in json_files:
-                file_path = os.path.join(json_folder, file_name)
-                story.append(Paragraph(f"### Data File: {file_name}", styles['Heading3']))
                 
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-
-                # Simple example: if data is a list of dictionaries (like news items)
-                if isinstance(data, list) and all(isinstance(i, dict) for i in data):
-                    # Create a simple table or list for readability
-                    story.append(Paragraph(f"Found {len(data)} records. Displaying key items:", styles['Normal']))
-                    
-                    for item in data[:3]: # Display first 3 items as snippet
-                        story.append(Paragraph(f"• **{item.get('title', 'N/A')}:** <i>{item.get('snippet', 'N/A')}</i>", styles['Normal']))
-                        story.append(Spacer(1, 6))
-
-                # If data is a dictionary (like the calculated rates)
-                elif isinstance(data, dict):
-                    table_data = [['Metric', 'Value']]
-                    for key, value in data.items():
-                        table_data.append([key.replace('_', ' ').title(), str(value)])
-                        
-                    table = Table(table_data, colWidths=[200, 150])
-                    table.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                        ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                    ]))
-                    story.append(table)
-                
-                story.append(Spacer(1, 18))
+        # Adding 12 months graphic to the report
+        if os.path.exists(file_path_12months):
+            # Add Image (scale to fit page width, e.g., 5 inches wide)
+            img = Image(file_path_12months, width=5 * 72, height=3 * 72) 
+            story.append(img)
+            story.append(Spacer(1, 12))
+            story.append(Paragraph(f"{desc_12_months}"))
+            story.append(Spacer(1, 12))
         else:
-            story.append(Paragraph("No JSON data files found to include.", styles['Normal']))
+            story.append(Paragraph(f"Warning: Graphic file not found: {desc_12_months}", styles['Normal']))
 
-        # 3. Process Graphics
-        graphic_files = [f for f in os.listdir(graphic_folder) if f.endswith('.png')]
-
-        if graphic_files:
-            story.append(Paragraph("## 🖼️ Visualizations and Charts", styles['Heading2']))
-            
-            for file_name in graphic_files:
-                file_path = os.path.join(graphic_folder, file_name)
-                story.append(Paragraph(f"### Chart: {file_name.replace('_', ' ').title()}", styles['Heading3']))
-                
-                # Check if file exists and is readable (basic check)
-                if os.path.exists(file_path):
-                    # Add Image (scale to fit page width, e.g., 5 inches wide)
-                    img = Image(file_path, width=5 * 72, height=3 * 72) 
-                    story.append(img)
-                    story.append(Spacer(1, 12))
-                else:
-                    story.append(Paragraph(f"Warning: Graphic file not found: {file_name}", styles['Normal']))
-
+        # Adding 30 days graphic to the report
+        if os.path.exists(file_path_30days):
+            # Add Image (scale to fit page width, e.g., 5 inches wide)
+            img = Image(file_path_30days, width=5 * 72, height=3 * 72) 
+            story.append(img)
+            story.append(Spacer(1, 12))
+            story.append(Paragraph(f"{desc_30_days}"))
         else:
-            story.append(Paragraph("No graphic files found to include.", styles['Normal']))
+            story.append(Paragraph(f"Warning: Graphic file not found: {file_path_30days}", styles['Normal']))
 
-        # 4. Build the PDF
+        # Adding paragraph
+        story.append(Paragraph("Desenvolvimentos Recentes", styles['Heading2']))
+        story.append(Paragraph(f"{recent_developments}"))
+
+        # Adding paragraph
+        story.append(Paragraph("Perspectivas", styles['Heading2']))
+        story.append(Paragraph(f"{perspectives}"))
+
+        # Build the PDF
         doc.build(story)
         
         return f"✅ Report successfully generated and saved to: {output_path}"

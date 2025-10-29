@@ -1,5 +1,11 @@
 [
     {
+        "title": "Casos de Síndrome Respiratória Aguda aumentam no Brasil",
+        "snippet": "Os casos de Síndrome Respiratória Grave voltam a preocupar. Os dados da Fiocruz indicam aumento no número de internações no país.",
+        "source": "Band",
+        "link": "https://www.band.com.br/noticias/jornal-da-band/videos/casos-de-sindrome-respiratoria-aguda-aumentam-no-brasil-202510281934"
+    },
+    {
         "title": "Casos de síndrome respiratória aguda grave aumentam em todas as regiões do Brasil",
         "snippet": "Mais de 56 mil casos de síndromes respiratórias agudas graves já foram confirmados em todo o país. Em quadros mais graves, os pacientes...",
         "source": "G1",
@@ -52,11 +58,5 @@
         "snippet": "As internações por Síndrome Respiratória Aguda Grave (SRAG) no estado do Rio apresentam sinal de desaceleração, mas os números continuam...",
         "source": "Agência Brasil",
         "link": "https://agenciabrasil.ebc.com.br/saude/noticia/2025-06/sindrome-respiratoria-aguda-grave-ja-matou-676-pessoas-este-ano-no-rio"
-    },
-    {
-        "title": "Casos de síndrome respiratória aguda grave estão em alta em mais de 20 estados pelo país",
-        "snippet": "Fiocruz aponta que 72,5% dos óbitos pela síndrome estão relacionados à influenza A. Vacinação contra a gripe está baixa pelo país.",
-        "source": "G1",
-        "link": "https://g1.globo.com/saude/noticia/2025/06/02/casos-de-sindrome-respiratoria-aguda-grave-estao-em-alta-em-mais-de-20-estados-pelo-pais.ghtml"
     }
 ]
