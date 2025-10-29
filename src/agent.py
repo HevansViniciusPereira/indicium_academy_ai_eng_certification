@@ -45,11 +45,12 @@ class Report(TypedDict):
 class ReportState(TypedDict):
     """descricao"""
 
-    query: str
     root_url: str
     download_url: str
     start_date: str
     end_date: str
+
+    query: str
     local_path: str
     selected_columns: list
     metrics: Dict
@@ -68,7 +69,9 @@ initial_state = ReportState(
     selected_columns = selected_columns
 )
 
-###########################################################
+##########################################################
+##################### Creating Nodes #####################
+##########################################################
 
 def node_recent_csv_url(state: ReportState) -> ReportState:
     state["download_url"] = get_csv_file_details(state["root_url"])
@@ -89,19 +92,24 @@ def node_download_csv(state: ReportState) -> ReportState:
 def node_generate_graphics(state: ReportState) -> ReportState:
     local_path = state["local_path"]
     date_col = 'DT_NOTIFIC'
-    generate_case_time_series_charts(local_path, date_col)
+    
+    generate_case_time_series_charts(local_path=local_path,
+        output_dir="output/graphics",
+        date_col=date_col)
     return state
 
 def node_search_news(state: ReportState) -> ReportState:
     start_date = state["start_date"]
     end_date = state["end_date"]
     query = state["query"]
+    news_output_dir = "output/news"
 
     news = search_online_news(
         query = query,
         num_results = 5,
         start_date = start_date,
-        end_date = end_date
+        end_date = end_date,
+        news_output_dir=news_output_dir
     )
 
     state["news"] = news
