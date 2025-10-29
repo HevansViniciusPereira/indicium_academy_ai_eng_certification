@@ -466,6 +466,63 @@ def analyze_graphic(graphic_12_months_path: str, graphic_30_days_path: str):
 
     return desc_12_months, desc_30_days
 
+def analyze_metrics(metrics: Dict):
+    try:
+        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
+
+        prompt = f"""
+            Você é um analista epidemiológico especialista.
+            Escreva um parágrafo sobre Síndrome Respiratória Aguda Grave usando os valores {metrics}.
+            Vá Direto para a análise e seja sucinto.
+        """
+
+        result = llm.invoke(prompt)
+
+    except Exception as e:
+        print(e)
+
+    return result.content
+
+def create_content(news:str, query:str) -> str:
+    try:
+        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
+
+        new_prompt = f"""
+            Você é um analista geopolítico e epidemiológico especialista.
+            Sua tarefa é sintetizar conteúdo noticioso.
+            O tema principal é: '{query}'. A seguir, é apresentado um array JSON 
+            dos artigos de notícias mais recentes encontrados:
+            --- INÍCIO DOS DADOS DE NOTÍCIAS ---
+            {news}
+            --- FIM DOS DADOS DE NOTÍCIAS ---
+            
+            Gere conteúdo para um relatório detalhado no formato Markdown, seguindo estas instruções: 
+            1. Inicie com um cabeçalho principal: '## Principais Descobertas e Contexto para "{query}"'.
+            2. Escreva um resumo executivo de um parágrafo (com menos de 5 frases).
+            3. Crie uma seção '### Desenvolvimentos Recentes' com uma lista de 3 a 5 fatos/eventos-chave em formato de lista com marcadores, citando o título da fonte para cada item.
+            4. Conclua com uma seção '### Perspectivas' contendo uma síntese em um parágrafo da tendência ou risco geral.
+        """
+
+        result = llm.invoke(new_prompt)
+        contents = result.content.split("###")
+
+        return contents
+
+    except Exception as e:
+        print(f"{e}")
+        
+        return None
+
+# query="Notícias sobre Síndrome Respiratória Aguda Grave no Brasil."
+
+# news = search_online_news(
+#         query = query,
+#         num_results = 5,
+#         start_date = "24-10-2024",
+#         end_date = "24-10-2025"
+#     )
+
+# create_content(news, query)
 
 
 def generate_pdf_report(
@@ -475,7 +532,8 @@ def generate_pdf_report(
         recent_developments: str,
         perspectives: str,
         desc_12_months:str,
-        desc_30_days:str
+        desc_30_days:str,
+        desc_metrics: str
         ) -> str:
     """
     Reads data from a JSON file, includes graphics from a folder, and 
@@ -493,7 +551,7 @@ def generate_pdf_report(
     # Define the output directory and file name
     report_output_path = "output/reports"
     report_name = f"SRAG_Final_Report_{end_date}.pdf"
-    graphic_folder = "output/graphics"
+    #graphic_folder = "output/graphics"
     file_path_12months = "output/graphics/cases_last_12_months.png"
     file_path_30days = "output/graphics/cases_last_30_days.png"
 
@@ -508,7 +566,7 @@ def generate_pdf_report(
         doc = SimpleDocTemplate(output_path, pagesize=letter)
         
         # Define custom styles
-        styles.add(ParagraphStyle(name='TitleStyle', fontSize=18, spaceAfter=25, alignment=1))
+        styles.add(ParagraphStyle(name='TitleStyle', fontSize=16, spaceAfter=25, alignment=1))
 
         # Adding title
         story.append(Paragraph(f"Paranorama SRAG no período de {start_date} a {end_date}", styles['TitleStyle']))
@@ -542,8 +600,9 @@ def generate_pdf_report(
             story.append(Paragraph(f"Warning: Graphic file not found: {file_path_30days}", styles['Normal']))
 
         # Adding paragraph
-        story.append(Paragraph("Desenvolvimentos Recentes", styles['Heading2']))
-        story.append(Paragraph(f"{recent_developments}"))
+        #story.append(Paragraph("Desenvolvimentos Recentes", styles['Heading2']))
+        #story.append(Paragraph(f"{recent_developments}"))
+        story.append(Paragraph(f"{desc_metrics}"))
 
         # Adding paragraph
         story.append(Paragraph("Perspectivas", styles['Heading2']))

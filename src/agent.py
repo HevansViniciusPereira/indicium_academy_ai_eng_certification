@@ -1,5 +1,5 @@
-from typing import TypedDict
-import json
+import os
+from typing import TypedDict, Dict
 from langgraph.graph import START, END, StateGraph
 from tools import (
     get_csv_file_details,
@@ -8,14 +8,12 @@ from tools import (
     generate_case_time_series_charts,
     search_online_news,
     calculate_epidemiology_rates,
+    create_content,
     analyze_graphic,
+    analyze_metrics,
     generate_pdf_report
 )
-import os
-from langchain_huggingface import HuggingFacePipeline
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.messages import HumanMessage
-#from langchain_community.llms import HuggingFaceHub
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -54,10 +52,12 @@ class ReportState(TypedDict):
     end_date: str
     local_path: str
     selected_columns: list
+    metrics: Dict
     news: str
     summary: str
     recent_developments: str
     perspectives: str
+    desc_metrics: str
     desc_12_months: str
     desc_30_days: str
 
@@ -115,11 +115,13 @@ def node_metrics(state: ReportState) -> ReportState:
 
     print("Calculating metrics.")
 
-    calculate_epidemiology_rates(
+    metrics = calculate_epidemiology_rates(
         local_path,
         selected_columns,
         end_date
     )
+
+    state["metrics"] = metrics
 
     return state
 
@@ -135,43 +137,23 @@ def node_analyze_graphics(state: ReportState) -> ReportState:
     
     return state
 
+def node_analyze_metrics(state: ReportState) -> ReportState:
+    metrics = state["metrics"]
+    desc_metrics = analyze_metrics(metrics)
+    state["desc_metrics"] = desc_metrics
+
+    return state
+
 def node_create_content(state: ReportState) -> ReportState:
 
     news = state["news"]
     query = state["query"]
 
-    try:
-        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
+    contents = create_content(news, query)
 
-        new_prompt = f"""
-            Você é um analista geopolítico e epidemiológico especialista.
-            Sua tarefa é sintetizar conteúdo noticioso.
-            O tema principal é: '{query}'. A seguir, é apresentado um array JSON 
-            dos artigos de notícias mais recentes encontrados:
-            --- INÍCIO DOS DADOS DE NOTÍCIAS ---
-            {news}
-            --- FIM DOS DADOS DE NOTÍCIAS ---
-            
-            Gere conteúdo para um relatório detalhado no formato Markdown, seguindo estas instruções: 
-            1. Inicie com um cabeçalho principal: '## Principais Descobertas e Contexto para "{query}"'.
-            2. Escreva um resumo executivo de um parágrafo (com menos de 5 frases).
-            3. Crie uma seção '### Desenvolvimentos Recentes' com uma lista de 3 a 5 fatos/eventos-chave em formato de lista com marcadores, citando o título da fonte para cada item.
-            4. Conclua com uma seção '### Perspectivas' contendo uma síntese em um parágrafo da tendência ou risco geral.
-        """
-
-        result = llm.invoke(new_prompt)
-        contents = result.content.split("###")
-
-        summary = contents[1].split("Resumo Executivo")[1]
-        recent_developments = contents[2].split("Desenvolvimentos Recentes")[1]
-        perspectives = contents[3].split("Perspectivas")[1]
-
-    except Exception as e:
-        print(f"{e}")
-        return None
-    
-    recent_developments = recent_developments.replace("**","").replace("* ","\n")
-    print(recent_developments)
+    summary = contents[1].split("Resumo Executivo")[1]
+    recent_developments = contents[2].split("Desenvolvimentos Recentes")[1]
+    perspectives = contents[3].split("Perspectivas")[1]
     
     state["summary"] = summary
     state["recent_developments"] = recent_developments
@@ -187,6 +169,7 @@ def node_generate_report(state: ReportState) -> ReportState:
     perspectives = state["perspectives"]
     desc_12_months = state["desc_12_months"]
     desc_30_days = state["desc_30_days"]
+    desc_metrics = state["desc_metrics"]
 
     print("Generating report.")
 
@@ -197,7 +180,8 @@ def node_generate_report(state: ReportState) -> ReportState:
         recent_developments=recent_developments,
         perspectives=perspectives,
         desc_12_months=desc_12_months,
-        desc_30_days=desc_30_days
+        desc_30_days=desc_30_days,
+        desc_metrics=desc_metrics
         )
     
     print("Report Generated.")
@@ -217,6 +201,7 @@ builder.add_node("search_news", node_search_news)
 builder.add_node("metrics", node_metrics)
 builder.add_node("create_content", node_create_content)
 builder.add_node("analyze_graphics", node_analyze_graphics)
+builder.add_node("analyze_metrics", node_analyze_metrics)
 builder.add_node("generate_report", node_generate_report)
 
 builder.add_edge(START, "recent_csv_url")
@@ -227,7 +212,8 @@ builder.add_edge("generate_graphics", "search_news")
 builder.add_edge("search_news", "metrics")
 builder.add_edge("metrics", "create_content")
 builder.add_edge("create_content", "analyze_graphics")
-builder.add_edge("analyze_graphics", "generate_report")
+builder.add_edge("analyze_graphics", "analyze_metrics")
+builder.add_edge("analyze_metrics", "generate_report")
 builder.add_edge("generate_report", END)
 graph = builder.compile()
 graph.invoke(initial_state)
