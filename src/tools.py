@@ -336,7 +336,7 @@ def search_online_news(
     news_file_name = f"news_context_{end_date}.json"
 
     # Checking local existence
-    if os.path.exists(news_output_dir):
+    if os.path.exists(news_output_dir + "/" + news_file_name):
         print(f"✅ Existem notícias localmente em: {news_output_dir}. Download ignorado.")
         return None
 
@@ -704,7 +704,7 @@ def create_content(news: str, query: str) -> Optional[List[str]]:
         print(f"Erro: {e}")
         
         return None
-
+    
 # Function to create the report (PDF)
 def generate_pdf_report(
         start_date: str,

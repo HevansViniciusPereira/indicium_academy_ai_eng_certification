@@ -267,7 +267,6 @@ def node_generate_report(state: ReportState) -> ReportState:
     start_date = state["start_date"]
     end_date = state["end_date"]
     summary = state["summary"]
-    #recent_developments = state["recent_developments"]
     perspectives = state["perspectives"]
     desc_12_months = state["desc_12_months"]
     desc_30_days = state["desc_30_days"]
@@ -279,7 +278,6 @@ def node_generate_report(state: ReportState) -> ReportState:
         start_date=start_date,
         end_date=end_date,
         summary=summary,
-        #recent_developments=recent_developments,
         perspectives=perspectives,
         desc_12_months=desc_12_months,
         desc_30_days=desc_30_days,
