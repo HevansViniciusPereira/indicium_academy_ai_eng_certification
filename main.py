@@ -1,5 +1,6 @@
 import os
 from langgraph.graph import START, END, StateGraph
+from langchain_core.runnables.graph_mermaid import draw_mermaid_png
 from src.agent import ReportState
 from src.agent import (
     node_recent_csv_url,
@@ -41,6 +42,8 @@ initial_state = ReportState(
 
 # Creating graph
 builder = StateGraph(ReportState)
+
+# Creating nodes
 builder.add_node("recent_csv_url", node_recent_csv_url)
 builder.add_node("getting_dates", node_getting_dates)
 builder.add_node("download_csv", node_download_csv)
@@ -52,6 +55,7 @@ builder.add_node("analyze_graphics", node_analyze_graphics)
 builder.add_node("analyze_metrics", node_analyze_metrics)
 builder.add_node("generate_report", node_generate_report)
 
+# Creating edges
 builder.add_edge(START, "recent_csv_url")
 builder.add_edge("recent_csv_url", "getting_dates")
 builder.add_edge("getting_dates", "download_csv")
@@ -63,5 +67,14 @@ builder.add_edge("create_content", "analyze_graphics")
 builder.add_edge("analyze_graphics", "analyze_metrics")
 builder.add_edge("analyze_metrics", "generate_report")
 builder.add_edge("generate_report", END)
+
+# Compile graph
 graph = builder.compile()
 graph.invoke(initial_state)
+
+# Get the Mermaid syntax representation of the graph
+mermaid_syntax = graph.get_graph().draw_mermaid()
+
+# Draw the Mermaid graph as a PNG image
+output_image_path = "langgraph_workflow.png"
+draw_mermaid_png(mermaid_syntax, output_file_path=output_image_path)

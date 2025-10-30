@@ -14,7 +14,6 @@ The entire process is orchestrated as a directed acyclic graph (DAG) or a state 
 The core of this system is the **ReportState** and a series of independent, chained **nodes** (functions) that act as specialized agents or tools. Each node performs a specific task, updates the central state, and hands the control to the next node in the pipeline.
 
 
-
 ---
 
 ## 🛠️ Components
@@ -22,6 +21,8 @@ The core of this system is the **ReportState** and a series of independent, chai
 ### 1. The Central State: `ReportState`
 
 The `ReportState` is the single source of truth, managing all inputs, intermediate results, and final report content.
+
+![Diagrama de Arquitetura do Agente](langgraph_workflow.png)
 
 | Key | Type | Description |
 | :--- | :--- | :--- |
