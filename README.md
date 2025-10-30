@@ -24,6 +24,8 @@ The `ReportState` is the single source of truth, managing all inputs, intermedia
 
 ![Diagrama de Arquitetura do Agente](langgraph_workflow.png)
 
+<img src="langgraph_workflow2.png" alt="Diagrama de Arquitetura" width="700"/>
+
 | Key | Type | Description |
 | :--- | :--- | :--- |
 | `root_url` | `str` | Initial URL to locate the data source. |
