@@ -23,7 +23,7 @@ The core of this system is the **ReportState** and a series of independent, chai
 The `ReportState` is the single source of truth, managing all inputs, intermediate results, and final report content.
 
 <div style="text-align: center;">
-    <img src="langgraph_workflow2.png" alt="Diagrama de Arquitetura" width="500"/>
+    <img src="langgraph_workflow.png" alt="Diagrama de Arquitetura" width="500"/>
 </div>
 
 ### Tools
