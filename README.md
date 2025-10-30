@@ -75,11 +75,15 @@ The nodes are the functional steps in the pipeline. They utilize specialized **T
 git clone [https://github.com/your-repo/epidemiological-report-agent.git](https://github.com/your-repo/epidemiological-report-agent.git)
 cd epidemiological-report-agent
 pip install -r requirements.txt
+```
 
 ### Report Generation
 
+Make a copy of the `.env.example` file, fill in the values for your API keys, and rename the copy to `.env`.
+
 ```bash
 python main.py
+```
 
 ### Project Structure
 
