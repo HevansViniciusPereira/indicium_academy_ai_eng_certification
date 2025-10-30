@@ -3,7 +3,7 @@ import json
 import requests
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
-from typing import List, Dict, Union, Tuple, Any
+from typing import List, Dict, Union, Tuple, Any, Optional
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -13,7 +13,6 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-#from reportlab.lib import colors
 from dotenv import load_dotenv
 
 ############################################################
@@ -23,8 +22,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 server_api_key = os.getenv("SERPER_API_KEY")
-huggingface_api_token = os.getenv("HUGGINGFACEHUB_API_TOKEN")
-
 
 # Initialize the Serper API wrapper as the search tool
 serper_search = GoogleSerperAPIWrapper(type="news")
@@ -211,6 +208,7 @@ def generate_case_time_series_charts(
         str: A status message listing the paths of the generated image files,
              or an error message if the operation fails.
     """
+    print("Gerando gráficos.")
 
     # Create output directory for charts if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -294,7 +292,7 @@ def generate_case_time_series_charts(
         for container in ax.containers:
             ax.bar_label(container, fmt='%d')
 
-        plt.title(f'Total de Casos (terminando em {latest_date.strftime("%m-%Y")})')
+        plt.title(f'Total de Casos (terminando em {latest_date.strftime("%d-%m-%Y")})')
         plt.tight_layout()
         sns.despine(left=True, right=True, bottom=True, top=True)
         plt.savefig(path_12m)
@@ -385,33 +383,60 @@ def search_online_news(
         print(f"❌ Erro ao executar a pesquisa de notícias Serper ou ao salvar o arquivo: {e}")
         return None
 
-
-
-# Calculating metrics
+# Function to calculate epidemiology rates
 def calculate_epidemiology_rates(
     local_path: str,
-    selected_columns: str,
+    selected_columns: List[str],
     end_date: str
-) -> Dict[str, Union[float, str]]:
+) -> Dict[str, Union[float, str, Any]]:
+    """
+    Calculates various epidemiological rates (case increase rate, case fatality rate (CFR),
+    ICU occupancy rate, and vaccination rate) from a local notification CSV file.
+
+    The rates are calculated based on notification data within a 30-day period
+    ending at `end_date`, except for the case increase rate, which uses monthly variation.
+    The final results are saved to a JSON file.
+
+    Args:
+        local_path (str): The path to the directory containing the CSV file.
+        selected_columns (List[str]): A list of column names that should be read from the CSV file.
+        end_date (str): The end date of the analysis period, in "%d-%m-%Y" format.
+
+    Returns:
+        results (Dict[str, Union[float, str, Any]]): A dictionary containing the calculated 
+            rates or "N/A" messages if division by zero occurs. Returns `None` if
+            reading the dataset fails.
+    """
+
+    print("Calculando métricas.")
     
     try:
+        # Attempt to locate the first file in the directory and construct the full path.
         file_path = local_path + os.listdir(local_path)[0]
+        
+        # Read the CSV file using semicolon as a delimiter and select only the required columns.
         df = pd.read_csv(file_path, delimiter=";", usecols=selected_columns)
         
+        # Convert date columns (those starting with "DT") to datetime objects.
         for col in selected_columns:
             if col[:2] == "DT":
+                # Assumes dates are already in YYYY-MM-DD format within the CSV
                 df[col] = pd.to_datetime(df[col], format="%Y-%m-%d")
 
-    except:
-        print("Não foi possível ler o conjunto de dados!")
+    except Exception as e:
+        # In case of reading or conversion failure, print the error and return None.
+        print(f"Falha ao ler o conjunto de dados! Erro: {e}")
         return None
 
     results = {}
+    # Calculate the start date (30 days before the end date) for recent analysis.
+    start_date = datetime.strptime(end_date, "%d-%m-%Y") - timedelta(days=30)
 
-    ###############################################
-    ## Rate of Case Increase (Percentage Change) ##
-    ###############################################
+    #################################################
+    ### Rate of Case Increase (Percentage Change) ###
+    #################################################
 
+    # Select relevant columns for case count
     df_cases = df[["NU_NOTIFIC","DT_NOTIFIC"]]
 
     df_cases = (
@@ -424,84 +449,92 @@ def calculate_epidemiology_rates(
         .sort_index()
     )
 
-    # Resample data to monthly sums for a cleaner 12-month view
+    # Resample data to monthly sums for a cleaner 12-month view.
     df_monthly = df_cases["TotalCases"].resample('M').sum()
     df_monthly = df_monthly.reset_index()
+    # Format the date column to Month-Year
     df_monthly['DT_NOTIFIC'] = df_monthly['DT_NOTIFIC'].dt.strftime('%m-%Y')
 
+    # Get the total cases from the second-to-last month and the last month for change calculation.
     previous_cases = df_monthly["TotalCases"].iloc[-2]
     current_cases = df_monthly["TotalCases"].iloc[-1]
 
+    # Calculate the percentage increase rate
     if previous_cases > 0:
         rate_increase = ((current_cases - previous_cases) / previous_cases) * 100
         results['case_increase_rate (%)'] = round(rate_increase, 2)
     else:
-        results['case_increase_rate (%)'] = "N/A (Previous cases were zero)"
+        results['case_increase_rate (%)'] = "N/A (O número de casos anteriores era zero.)"
 
     ###############################################
-    # Death Rate
+    #### Death Rate (Case Fatality Rate - CFR) ####
     ###############################################
 
-    df_deaths = df[["EVOLUCAO"]].dropna().query("EVOLUCAO == 1.0 | EVOLUCAO == 2.0")
-    cumulative_confirmed_cases = df_deaths.shape[0]
+    df_deaths = df[["DT_NOTIFIC","EVOLUCAO"]]
+    # Filter for cases notified in the last month (30 days) and drop nulls.
+    df_deaths = df_deaths.query(f"DT_NOTIFIC > '{start_date}'").dropna()
+    # Total cases in the period (treated as confirmed/closed)
+    total_cases = df_deaths.shape[0]
+    # Count of deaths (EVOLUCAO = 2.0)
     current_deaths = df_deaths.query("EVOLUCAO == 2.0").shape[0]
 
-    if cumulative_confirmed_cases > 0:
-        death_rate = (current_deaths / cumulative_confirmed_cases) * 100
+    # Calculate the Case Fatality Rate (CFR)
+    if total_cases > 0:
+        death_rate = (current_deaths / total_cases) * 100
         results['death_rate_cfr (%)'] = round(death_rate, 2)
     else:
-        results['death_rate_cfr (%)'] = "N/A (Total confirmed cases were zero)"
+        results['death_rate_cfr (%)'] = "N/A (Total de casos confirmados foi zero.)"
 
     ###############################################
-    # ICU Occupancy Rate
+    ############## ICU Occupancy Rate #############
     ###############################################
 
-    df_icu = df[["UTI", "DT_ENTUTI", "DT_SAIDUTI"]].dropna()
+    df_icu = df[["UTI","DT_NOTIFIC"]]
+    # Filter for cases notified in the last month (30 days)
+    df_icu = df_icu.query(f"DT_NOTIFIC > '{start_date}'")
+    # Total cases in the period
+    total_cases_analyzed = df_icu.shape[0]
+    # Count of cases admitted to ICU (UTI = 1.0)
+    icu_occupancy = df_icu.query("UTI == 1.0").shape[0]
 
-    icu_capacity = df_cases = (
-        df_icu
-        .set_index("DT_ENTUTI")
-        .groupby(by="DT_ENTUTI")
-        .agg("count")
-        .rename(columns={df_cases.columns[0]: 'TotalCases'})
-        .sort_index()
-    )
-
-    icu_capacity = 100
-    icu_occupancy = 50
-
-    if icu_capacity > 0:
-        icu_rate = (icu_occupancy / icu_capacity) * 100
+    # Calculate the ICU Admission Rate (ICU Cases / Total Cases Analyzed)
+    if total_cases_analyzed > 0:
+        icu_rate = (icu_occupancy / total_cases_analyzed) * 100
         results['icu_occupancy_rate (%)'] = round(icu_rate, 2)
     else:
-        results['icu_occupancy_rate (%)'] = "N/A (ICU capacity is zero)"
+        results['icu_occupancy_rate (%)'] = "N/A (Total de casos para a análise de UTI foi zero.)"
 
-    ###############################################
-    # Population Vaccination Rate
-    ###############################################
+    # ###############################################
+    # Population Vaccination Rate (among analyzed cases)
+    # ###############################################
 
-    df_vacina = df[["VACINA"]]
+    df_vacina = df[["VACINA","DT_NOTIFIC"]]
+    # Filter for cases notified in the last month (30 days)
+    df_vacina = df_vacina.query(f"DT_NOTIFIC > '{start_date}'")
 
-    total_population = df_vacina.shape[0]
+    # Total cases analyzed in the period (sample population)
+    total_population_analyzed = df_vacina.shape[0]
+    # Count of cases that were vaccinated (VACINA = 1.0)
     people_vaccinated = df_vacina.query("VACINA == 1.0").shape[0]
 
-    if total_population > 0:
-        vac_rate = (people_vaccinated / total_population) * 100
+    # Calculate the Vaccination Rate (Vaccinated Cases / Total Cases Analyzed)
+    if total_population_analyzed > 0:
+        vac_rate = (people_vaccinated / total_population_analyzed) * 100
         results['population_vaccination_rate (%)'] = round(vac_rate, 2)
     else:
-        results['population_vaccination_rate (%)'] = "N/A (Total population is zero)"
-
-    file_path = f"output/rates/calc_rates_{end_date}.json"
-    directory = os.path.dirname(file_path)
+        results['population_vaccination_rate (%)'] = "N/A (População total para análise de vacinação é zero.)"
+    
+    # Define the path for the output JSON file.
+    file_path_json = f"output/rates/calc_rates_{end_date}.json"
+    directory = os.path.dirname(file_path_json)
+    # Create the directory if it does not exist.
     os.makedirs(directory, exist_ok=True)
 
-    with open(file_path, 'w') as f:
+    # Save the results dictionary to a JSON file.
+    with open(file_path_json, 'w') as f:
         json.dump(results, f, indent=4)
 
     return results
-
-
-
 
 # Function to the LLM generate a description of the graphics
 def analyze_graphic(graphic_12_months_path: str, graphic_30_days_path: str) -> Tuple[str, str]:
@@ -521,6 +554,8 @@ def analyze_graphic(graphic_12_months_path: str, graphic_30_days_path: str) -> T
         desc_12_months (str): A string containing the description of the 12-month graphic.
         desc_30_days (str): A string containing the description of the 30-day graphic.
     """
+    print("Gerando descrição dos gráficos.")
+
     # List to store the generated descriptions.
     descriptions = []
     
@@ -581,6 +616,8 @@ def analyze_metrics(metrics: Dict[str, Any]) -> str:
     Return:
         result.content (List[str]): A string containing the epidemiological analysis of SRAG generated by the LLM.
     """
+    print("Gerando descrição das métricas.")
+
     try:
         # Initializes the Google Large Language Model (LLM).
         llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
@@ -606,13 +643,32 @@ def analyze_metrics(metrics: Dict[str, Any]) -> str:
     # Returns the content of the analysis generated by the LLM.
     return result.content
 
+# Function to create the report based on news.
+def create_content(news: str, query: str) -> Optional[List[str]]:
+    """
+    Synthesizes a set of news articles into a structured report using the
+    Gemini 2.5 Flash model, acting as an expert geopolitical and
+    epidemiological analyst.
 
+    The generated report is in Markdown format and is structured into sections
+    (Executive Summary, Recent Developments, and Perspectives). It is returned
+    as a list of strings, separated by the "###" marker.
 
+    Args:
+        news (str): A string containing a JSON array of the most recent news articles.
+        query (str): The main topic string used to search for the news.
 
-def create_content(news:str, query:str) -> str:
+    Returns:
+        contents (List[str]): A list of strings, where each item represents a section of the
+             report (separated by the '###' marker). Returns None on error.
+    """
+    print("Gerando o conteúdo do relatório.")
+
     try:
+        # Initializes the Google Large Language Model (LLM).
         llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
 
+        # The prompt defines the LLM's role and the strict formatting rules
         new_prompt = f"""
             Você é um analista geopolítico e epidemiológico especialista.
             Sua tarefa é sintetizar conteúdo noticioso.
@@ -629,42 +685,56 @@ def create_content(news:str, query:str) -> str:
             4. Conclua com uma seção '### Perspectivas' contendo uma síntese em um parágrafo da tendência ou risco geral.
         """
 
+        # Invokes the LLM model with the prompt to generate the report.
         result = llm.invoke(new_prompt)
+        
+        # Splits the report content into a list of strings.
         contents = result.content.split("###")
 
+        # Returns the list of report sections.
         return contents
 
     except Exception as e:
-        print(f"{e}")
+        # Captures and prints any exception.
+        print(f"Error: {e}")
         
         return None
-
-
-
 
 # Function to create the report (PDF)
 def generate_pdf_report(
         start_date: str,
         end_date: str,
         summary: str,
-        recent_developments: str,
+        #recent_developments: str,
         perspectives: str,
         desc_12_months:str,
         desc_30_days:str,
         desc_metrics: str
         ) -> str:
     """
-    Reads data from a JSON file, includes graphics from a folder, and 
-    generates a single PDF report.
+    Generates a structured PDF report for SRAG (Síndrome Respiratória Aguda Grave)
+    using pre-analyzed text descriptions and existing graphic files.
+
+    The function creates a titled, dated document containing an executive summary,
+    two graphics (12 months and 30 days) with their corresponding descriptions,
+    a metrics analysis, and a perspectives section. It uses the ReportLab library
+    for PDF creation.
 
     Args:
-        json_folder (str): Path to the folder containing JSON data files.
-        graphic_folder (str): Path to the folder containing image files (PNG/JPG).
-        output_path (str, optional): Full path for the output PDF. Defaults to report_output_path/Final_Report.pdf.
+        start_date (str): The start date of the reporting period.
+        end_date (str): The end date of the reporting period.
+        summary (str): The executive summary paragraph, generated by an LLM based on news/data.
+        perspectives (str): The perspectives/risk analysis paragraph, generated by an LLM.
+        desc_12_months (str): The LLM-generated description/analysis for the 12-month graphic.
+        desc_30_days (str): The LLM-generated description/analysis for the 30-day graphic.
+        desc_metrics (str): The LLM-generated analysis of key epidemiological metrics.
                           
     Returns:
-        str: A status message with the full path of the generated PDF.
+        str: A status message indicating success or failure, including the full
+             path of the generated PDF on success.
     """
+
+    print("Gerando relatório.")
 
     # Define the output directory and file name
     report_output_path = "output/reports"
@@ -699,7 +769,7 @@ def generate_pdf_report(
         # Adding 12 months graphic to the report
         if os.path.exists(file_path_12months):
             # Add Image (scale to fit page width, e.g., 5 inches wide)
-            img = Image(file_path_12months, width=5 * 72, height=3 * 72) 
+            img = Image(file_path_12months, width=6 * 72, height=3 * 72) 
             story.append(img)
             story.append(Spacer(1, 12))
             story.append(Paragraph(f"{desc_12_months}"))
@@ -710,7 +780,7 @@ def generate_pdf_report(
         # Adding 30 days graphic to the report
         if os.path.exists(file_path_30days):
             # Add Image (scale to fit page width, e.g., 5 inches wide)
-            img = Image(file_path_30days, width=5 * 72, height=3 * 72) 
+            img = Image(file_path_30days, width=6 * 72, height=3 * 72) 
             story.append(img)
             story.append(Spacer(1, 12))
             story.append(Paragraph(f"{desc_30_days}"))
