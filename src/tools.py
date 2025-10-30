@@ -309,15 +309,6 @@ def generate_case_time_series_charts(
     except Exception as e:
         print(f"❌ Um erro inesperado ocorreu durante a geração do gráfico: {e}")
         return None
-    
-
-
-generate_case_time_series_charts(
-        local_path = "data/",
-        output_dir = "output/graphics",
-        date_col = 'DT_NOTIFIC'
-        )
-
 
 # Function to search for online news about SRAG
 def search_online_news(
@@ -692,6 +683,11 @@ def create_content(news: str, query: str) -> Optional[List[str]]:
             2. Escreva um resumo executivo de um parágrafo (com menos de 5 frases).
             3. Crie uma seção '### Desenvolvimentos Recentes' com uma lista de 3 a 5 fatos/eventos-chave em formato de lista com marcadores, citando o título da fonte para cada item.
             4. Conclua com uma seção '### Perspectivas' contendo uma síntese em um parágrafo da tendência ou risco geral.
+
+            Guardrails:
+                Produza conteúdo exclusivamente sobre Síndrome Respiratória Aguda Grave.
+                Se a {query} contiver outro tipo de assunto, responda apenas que seu objetivo é 
+                auxiliar somente na geração de conteúdo sobre Síndrome Respiratória Agura grave.
         """
 
         # Invokes the LLM model with the prompt to generate the report.
