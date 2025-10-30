@@ -26,7 +26,7 @@ The `ReportState` is the single source of truth, managing all inputs, intermedia
     <img src="langgraph_workflow2.png" alt="Diagrama de Arquitetura" width="500"/>
 </div>
 
-#### Tools
+### Tools
 
 | Key | Type | Description |
 | :--- | :--- | :--- |
@@ -110,7 +110,7 @@ python main.py
 
 The entire system functions as a pipeline, with each major function acting as a specialized tool for a particular stage of report generation.
 
-#### 1. Data Ingestion and Preparation (The Scraper & Data Tool)
+### 1. Data Ingestion and Preparation (The Scraper & Data Tool)
 
 This initial stage handles finding and acquiring the raw data:
 
@@ -122,7 +122,7 @@ This initial stage handles finding and acquiring the raw data:
 
 * generate_case_time_series_charts: Acts as a Visualization Tool. It reads the raw data, performs time-series aggregation, and outputs two essential charts: cases in the last 12 months (monthly bar chart) and cases in the last 30 days (daily line chart).
 
-#### 2. Quantitative Analysis (The Data Scientist Tool)
+### 2. Quantitative Analysis (The Data Scientist Tool)
 
 * calculate_epidemiology_rates: Acts as a Statistical Analysis Engine. It calculates crucial public health metrics from the raw data for the recent 30-day period. Key rates include:
 
@@ -136,11 +136,11 @@ This initial stage handles finding and acquiring the raw data:
 
 The output is a structured dictionary of numerical results saved to a JSON file.
 
-#### 3. Contextual Retrieval (The Intelligence Agent)
+### 3. Contextual Retrieval (The Intelligence Agent)
 
 * search_online_news: Acts as an External Search Agent (using GoogleSerperAPIWrapper). It performs a targeted, real-time news search related to the primary query and reporting dates, retrieving recent articles and saving the structured results to a JSON file.
 
-#### 4. Generative AI Synthesis (The Expert Analyst Agents)
+### 4. Generative AI Synthesis (The Expert Analyst Agents)
 
 This stage leverages Google's Gemini 2.5 Flash model to transform raw data and news into structured, narrative text.
 
@@ -160,7 +160,7 @@ This stage leverages Google's Gemini 2.5 Flash model to transform raw data and n
 
 * Perspectives (risk analysis/outlook).
 
-#### 5. Final Report Assembly (The Publisher)
+### 5. Final Report Assembly (The Publisher)
 
 * generate_pdf_report: Acts as the Final Publisher/Document Generator (using ReportLab). It takes all the pre-processed components—dates, the Executive Summary, the Metrics Analysis, the Graphic Descriptions, and the Perspectives—and compiles them into the final, professional SRAG Final Report.pdf document. This is the ultimate output object of the entire workflow.
 
